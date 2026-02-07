@@ -16,6 +16,7 @@ type TmuxPaneInfo struct {
 	WindowIndex string // window index within session
 	PaneIndex   string // pane index within window
 	Target      string // full target string like "session:0.1"
+	Client      string // tmux client name (e.g., /dev/ttys000)
 }
 
 // GetCurrentTmuxPane detects if we're running inside tmux and returns the current pane info.
@@ -39,6 +40,15 @@ func GetCurrentTmuxPane() *TmuxPaneInfo {
 		return nil
 	}
 
+	// Get the client name (e.g., /dev/ttys000) - needed for switch-client
+	clientCmd := exec.Command("tmux", "display-message", "-p", "#{client_name}")
+	clientOutput, err := clientCmd.Output()
+	if err != nil {
+		logging.Debug("Failed to get tmux client: %v", err)
+		return nil
+	}
+	client := strings.TrimSpace(string(clientOutput))
+
 	// Parse the target string
 	// Format: "session_name:window_index.pane_index" (e.g., "main:0.2")
 	parts := strings.SplitN(target, ":", 2)
@@ -61,9 +71,10 @@ func GetCurrentTmuxPane() *TmuxPaneInfo {
 		WindowIndex: wpParts[0],
 		PaneIndex:   wpParts[1],
 		Target:      target,
+		Client:      client,
 	}
 
-	logging.Debug("Detected tmux pane: %s", target)
+	logging.Debug("Detected tmux pane: %s (client: %s)", target, client)
 	return info
 }
 
@@ -75,12 +86,10 @@ func BuildTmuxFocusCommand(pane *TmuxPaneInfo, terminalBundleID string) string {
 		return ""
 	}
 
-	// Use switch-client for attached sessions, or attach if detached
-	// Also select the specific window and pane
+	// Use switch-client with explicit client (-c) to switch the correct terminal
+	// The client (e.g., /dev/ttys000) identifies which terminal to control
 	// Finally, bring the terminal app to front with 'open -b'
-	cmd := "tmux switch-client -t '" + pane.Target + "' 2>/dev/null || " +
-		"tmux select-window -t '" + pane.SessionName + ":" + pane.WindowIndex + "' 2>/dev/null; " +
-		"tmux select-pane -t '" + pane.Target + "' 2>/dev/null; " +
+	cmd := "tmux switch-client -c '" + pane.Client + "' -t '" + pane.Target + "'; " +
 		"open -b '" + terminalBundleID + "'"
 
 	logging.Debug("Built tmux focus command: %s", cmd)
