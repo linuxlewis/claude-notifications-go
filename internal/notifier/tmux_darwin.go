@@ -86,12 +86,55 @@ func BuildTmuxFocusCommand(pane *TmuxPaneInfo, terminalBundleID string) string {
 		return ""
 	}
 
+	// Find tmux binary path - terminal-notifier runs with minimal PATH
+	tmuxPath := findTmuxPath()
+
 	// Use switch-client with explicit client (-c) to switch the correct terminal
 	// The client (e.g., /dev/ttys000) identifies which terminal to control
-	// Finally, bring the terminal app to front with 'open -b'
-	cmd := "tmux switch-client -c '" + pane.Client + "' -t '" + pane.Target + "'; " +
-		"open -b '" + terminalBundleID + "'"
+	// Finally, bring the terminal app to front with osascript
+	terminalApp := bundleIDToAppName(terminalBundleID)
+	cmd := tmuxPath + " switch-client -c '" + pane.Client + "' -t '" + pane.Target + "'; " +
+		"osascript -e 'tell application \"" + terminalApp + "\" to activate'"
 
 	logging.Debug("Built tmux focus command: %s", cmd)
 	return cmd
+}
+
+// bundleIDToAppName converts a bundle ID to an application name for osascript
+func bundleIDToAppName(bundleID string) string {
+	mapping := map[string]string{
+		"com.apple.Terminal":      "Terminal",
+		"com.googlecode.iterm2":   "iTerm",
+		"dev.warp.Warp-Stable":    "Warp",
+		"net.kovidgoyal.kitty":    "kitty",
+		"com.mitchellh.ghostty":   "Ghostty",
+		"com.github.wez.wezterm":  "WezTerm",
+		"org.alacritty":           "Alacritty",
+		"co.zeit.hyper":           "Hyper",
+		"com.microsoft.VSCode":    "Visual Studio Code",
+	}
+
+	if name, ok := mapping[bundleID]; ok {
+		return name
+	}
+	return "Terminal" // fallback
+}
+
+// findTmuxPath returns the full path to tmux binary
+func findTmuxPath() string {
+	// Common paths for tmux
+	paths := []string{
+		"/usr/local/bin/tmux",  // Homebrew Intel
+		"/opt/homebrew/bin/tmux", // Homebrew Apple Silicon
+		"/usr/bin/tmux",        // System
+	}
+
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+
+	// Fallback - hope it's in PATH
+	return "tmux"
 }
